@@ -14,7 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      health_records: {
+        Row: {
+          created_at: string
+          flags: Json
+          id: string
+          member_name: string
+          original_filename: string | null
+          report_date: string
+          report_name: string
+          status: string
+          summary: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          flags?: Json
+          id?: string
+          member_name: string
+          original_filename?: string | null
+          report_date?: string
+          report_name: string
+          status?: string
+          summary: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          flags?: Json
+          id?: string
+          member_name?: string
+          original_filename?: string | null
+          report_date?: string
+          report_name?: string
+          status?: string
+          summary?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
