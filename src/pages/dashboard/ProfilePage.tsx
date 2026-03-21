@@ -4,9 +4,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { User, Mail, Phone, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function ProfilePage() {
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/login");
+  };
 
   return (
     <div className="space-y-6 max-w-lg animate-reveal">
@@ -22,8 +29,8 @@ export default function ProfilePage() {
               <User className="h-8 w-8 text-primary" />
             </div>
             <div>
-              <CardTitle>Rahul Sharma</CardTitle>
-              <p className="text-sm text-muted-foreground">Premium Member</p>
+              <CardTitle>{user?.user_metadata?.full_name || "User"}</CardTitle>
+              <p className="text-sm text-muted-foreground">{user?.email}</p>
             </div>
           </div>
         </CardHeader>
@@ -32,25 +39,25 @@ export default function ProfilePage() {
             <Label>Full Name</Label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-10" defaultValue="Rahul Sharma" />
+              <Input className="pl-10" defaultValue={user?.user_metadata?.full_name || ""} />
             </div>
           </div>
           <div className="space-y-2">
             <Label>Email</Label>
             <div className="relative">
               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-10" defaultValue="rahul.sharma@email.com" />
+              <Input className="pl-10" defaultValue={user?.email || ""} readOnly />
             </div>
           </div>
           <div className="space-y-2">
             <Label>Phone</Label>
             <div className="relative">
               <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-10" defaultValue="+91 98765 43210" />
+              <Input className="pl-10" defaultValue={user?.phone || ""} />
             </div>
           </div>
           <Button className="w-full">Save Changes</Button>
-          <Button variant="outline" className="w-full text-destructive" onClick={() => navigate("/login")}>
+          <Button variant="outline" className="w-full text-destructive" onClick={handleSignOut}>
             <LogOut className="h-4 w-4 mr-2" /> Sign Out
           </Button>
         </CardContent>
