@@ -44,7 +44,7 @@ export default function HealthRecords() {
     if (error) {
       console.error("Error fetching records:", error);
     } else {
-      setRecords((data as HealthRecord[]) || []);
+      setRecords((data as unknown as HealthRecord[]) || []);
     }
     setLoading(false);
   };
