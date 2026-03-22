@@ -1,3 +1,3 @@
-# Welcome to your Lovable project
+# Welcome to our Healthcare app
 
 TODO: Document your project here
