@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,37 +7,81 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Phone, QrCode, User } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { db as supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 
 interface FamilyMember {
   id: string;
   name: string;
-  age: number;
+  age: string;
   gender: string;
-  phone: string;
-  abhaId: string;
+  phone_number: string;
+  abha_id: string;
+  doctor_view_token: string;
 }
 
-const initialMembers: FamilyMember[] = [
-  { id: "1", name: "Rahul Sharma", age: 42, gender: "Male", phone: "+91 98765 43210", abhaId: "91-1234-5678-9012" },
-  { id: "2", name: "Sunita Sharma", age: 38, gender: "Female", phone: "+91 98765 43211", abhaId: "91-1234-5678-9013" },
-  { id: "3", name: "Aarav Sharma", age: 14, gender: "Male", phone: "+91 98765 43212", abhaId: "91-1234-5678-9014" },
-  { id: "4", name: "Priya Sharma", age: 68, gender: "Female", phone: "+91 98765 43213", abhaId: "91-1234-5678-9015" },
-];
-
 export default function FamilyMembers() {
-  const [members, setMembers] = useState<FamilyMember[]>(initialMembers);
+  const [members, setMembers] = useState<FamilyMember[]>([]);
   const [open, setOpen] = useState(false);
   const [showQr, setShowQr] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", age: "", gender: "", phone: "", abhaId: "" });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", age: "", gender: "", phone_number: "", abha_id: "" });
 
-  const handleAdd = () => {
-    if (!form.name || !form.age || !form.gender) return;
-    setMembers((prev) => [
-      ...prev,
-      { id: Date.now().toString(), name: form.name, age: Number(form.age), gender: form.gender, phone: form.phone, abhaId: form.abhaId },
-    ]);
-    setForm({ name: "", age: "", gender: "", phone: "", abhaId: "" });
-    setOpen(false);
+  useEffect(() => {
+    fetchMembers();
+  }, []);
+
+  const fetchMembers = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("family_members")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      setMembers(data || []);
+    } catch (error) {
+      console.error("Error fetching members:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAdd = async () => {
+    if (!form.name || !form.age || !form.gender) {
+      toast.error("Please fill name, age and gender");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const token = crypto.randomUUID();
+      const { error } = await supabase
+        .from("family_members")
+        .insert({
+          user_id: user.id,
+          name: form.name,
+          age: form.age,
+          gender: form.gender,
+          phone_number: form.phone_number,
+          abha_id: form.abha_id,
+          doctor_view_token: token
+        });
+      if (error) throw error;
+      toast.success("Family member added!");
+      setForm({ name: "", age: "", gender: "", phone_number: "", abha_id: "" });
+      setOpen(false);
+      fetchMembers();
+    } catch (error) {
+      console.error("Error adding member:", error);
+      toast.error("Failed to add member");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -79,56 +123,68 @@ export default function FamilyMembers() {
               </div>
               <div className="space-y-2">
                 <Label>Phone Number</Label>
-                <Input placeholder="+91 98765 43210" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+                <Input placeholder="+91 98765 43210" value={form.phone_number} onChange={(e) => setForm({ ...form, phone_number: e.target.value })} />
               </div>
               <div className="space-y-2">
                 <Label>ABHA ID</Label>
-                <Input placeholder="91-XXXX-XXXX-XXXX" value={form.abhaId} onChange={(e) => setForm({ ...form, abhaId: e.target.value })} />
+                <Input placeholder="91-XXXX-XXXX-XXXX" value={form.abha_id} onChange={(e) => setForm({ ...form, abha_id: e.target.value })} />
               </div>
-              <Button className="w-full" onClick={handleAdd}>Add Member</Button>
+              <Button className="w-full" onClick={handleAdd} disabled={saving}>
+                {saving ? "Adding..." : "Add Member"}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        {members.map((member, i) => (
-          <Card key={member.id} className={`card-elevated border-border animate-reveal animate-reveal-delay-${Math.min(i + 1, 3)}`}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
-                    <User className="h-5 w-5 text-primary" />
+      {loading ? (
+        <p className="text-muted-foreground text-sm">Loading...</p>
+      ) : members.length === 0 ? (
+        <p className="text-muted-foreground text-sm">No family members yet. Add your first member.</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {members.map((member, i) => (
+            <Card key={member.id} className="card-elevated border-border">
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center">
+                      <User className="h-5 w-5 text-primary" />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-foreground">{member.name}</p>
+                      <p className="text-xs text-muted-foreground">{member.age} yrs • {member.gender}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-semibold text-foreground">{member.name}</p>
-                    <p className="text-xs text-muted-foreground">{member.age} yrs • {member.gender}</p>
+                  <Button variant="ghost" size="icon" onClick={() => setShowQr(showQr === member.id ? null : member.id)}>
+                    <QrCode className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="mt-3 space-y-1.5 text-sm">
+                  {member.phone_number && (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Phone className="h-3.5 w-3.5" /> {member.phone_number}
+                    </div>
+                  )}
+                  {member.abha_id && (
+                    <p className="text-xs text-muted-foreground">ABHA: {member.abha_id}</p>
+                  )}
+                </div>
+                {showQr === member.id && (
+                  <div className="mt-4 flex justify-center p-4 bg-card rounded-lg border border-border">
+                    <QRCodeSVG
+                      value={`${window.location.origin}/doctor/${member.doctor_view_token}`}
+                      size={140}
+                      level="M"
+                      fgColor="hsl(152, 55%, 33%)"
+                    />
                   </div>
-                </div>
-                <Button variant="ghost" size="icon" onClick={() => setShowQr(showQr === member.id ? null : member.id)}>
-                  <QrCode className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="mt-3 space-y-1.5 text-sm">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Phone className="h-3.5 w-3.5" /> {member.phone}
-                </div>
-                <p className="text-xs text-muted-foreground">ABHA: {member.abhaId}</p>
-              </div>
-              {showQr === member.id && (
-                <div className="mt-4 flex justify-center p-4 bg-card rounded-lg border border-border">
-                  <QRCodeSVG
-                    value={`${window.location.origin}/doctor/${member.id}`}
-                    size={140}
-                    level="M"
-                    fgColor="hsl(152, 55%, 33%)"
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
