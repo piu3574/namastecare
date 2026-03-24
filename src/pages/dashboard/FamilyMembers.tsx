@@ -16,7 +16,6 @@ interface FamilyMember {
   age: string;
   gender: string;
   phone_number: string;
-  abha_id: string;
   doctor_view_token: string;
 }
 
@@ -26,7 +25,7 @@ export default function FamilyMembers() {
   const [showQr, setShowQr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", age: "", gender: "", phone_number: "", abha_id: "" });
+  const [form, setForm] = useState({ name: "", age: "", gender: "", phone_number: "" });
 
   useEffect(() => {
     fetchMembers();
@@ -68,12 +67,11 @@ export default function FamilyMembers() {
           age: form.age,
           gender: form.gender,
           phone_number: form.phone_number,
-          abha_id: form.abha_id,
           doctor_view_token: token
         });
       if (error) throw error;
       toast.success("Family member added!");
-      setForm({ name: "", age: "", gender: "", phone_number: "", abha_id: "" });
+      setForm({ name: "", age: "", gender: "", phone_number: "" });
       setOpen(false);
       fetchMembers();
     } catch (error) {
@@ -125,10 +123,6 @@ export default function FamilyMembers() {
                 <Label>Phone Number</Label>
                 <Input placeholder="+91 98765 43210" value={form.phone_number} onChange={(e) => setForm({ ...form, phone_number: e.target.value })} />
               </div>
-              <div className="space-y-2">
-                <Label>ABHA ID</Label>
-                <Input placeholder="91-XXXX-XXXX-XXXX" value={form.abha_id} onChange={(e) => setForm({ ...form, abha_id: e.target.value })} />
-              </div>
               <Button className="w-full" onClick={handleAdd} disabled={saving}>
                 {saving ? "Adding..." : "Add Member"}
               </Button>
@@ -165,9 +159,6 @@ export default function FamilyMembers() {
                     <div className="flex items-center gap-2 text-muted-foreground">
                       <Phone className="h-3.5 w-3.5" /> {member.phone_number}
                     </div>
-                  )}
-                  {member.abha_id && (
-                    <p className="text-xs text-muted-foreground">ABHA: {member.abha_id}</p>
                   )}
                 </div>
                 {showQr === member.id && (

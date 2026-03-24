@@ -101,9 +101,6 @@ export default function DoctorView() {
               <div>
                 <h2 className="font-bold text-foreground text-lg">{member?.name}</h2>
                 <p className="text-sm text-muted-foreground">{member?.age} yrs • {member?.gender}</p>
-                {member?.abha_id && (
-                  <p className="text-xs text-muted-foreground mt-0.5">ABHA: {member.abha_id}</p>
-                )}
               </div>
             </div>
           </CardContent>

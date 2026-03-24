@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Heart, Shield, Users, FileText, Bell, Smartphone } from "lucide-react";
 
 const features = [
-  { icon: Users, title: "Family Profiles", desc: "Add all family members with ABHA ID and QR codes for easy sharing" },
+  { icon: Users, title: "Family Profiles", desc: "Add all family members and use QR codes for easy sharing" },
   { icon: FileText, title: "Smart Records", desc: "Upload reports and get AI-powered clinical summaries with color-coded flags" },
   { icon: Bell, title: "Medicine Alerts", desc: "Send timely medicine reminders directly via WhatsApp" },
   { icon: Smartphone, title: "Doctor View", desc: "Share patient summaries with doctors via QR code — no login needed" },
