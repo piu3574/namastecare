@@ -3,7 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, FileText, AlertTriangle, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { db as supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { Label } from "@/components/ui/label";
 
 interface HealthFlag {
   label: string;
@@ -22,6 +23,11 @@ interface HealthRecord {
   created_at: string;
 }
 
+interface FamilyMember {
+  id: string;
+  name: string;
+}
+
 const StatusIcon = ({ status }: { status: string }) => {
   if (status === "green") return <CheckCircle2 className="h-4 w-4 text-success flex-shrink-0" />;
   if (status === "amber") return <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0" />;
@@ -32,14 +38,45 @@ export default function HealthRecords() {
   const [records, setRecords] = useState<HealthRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [familyMembers, setFamilyMembers] = useState<FamilyMember[]>([]);
+  const [selectedFamilyMemberId, setSelectedFamilyMemberId] = useState<string>("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  const fetchRecords = async () => {
+  const fetchFamilyMembers = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
     const { data, error } = await supabase
+      .from("family_members")
+      .select("id, name")
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error fetching family members:", error);
+    } else {
+      setFamilyMembers(data || []);
+    }
+  };
+
+  const fetchRecords = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    let query = supabase
       .from("health_records")
       .select("*")
-      .order("created_at", { ascending: false });
+      .eq("user_id", user.id);
+
+    // Filter by selected family member if one is selected
+    if (selectedFamilyMemberId) {
+      query = query.eq("family_member_id", selectedFamilyMemberId);
+    } else {
+      // Show "Self" records (where family_member_id is null)
+      query = query.is("family_member_id", null);
+    }
+
+    const { data, error } = await query.order("created_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching records:", error);
@@ -50,8 +87,13 @@ export default function HealthRecords() {
   };
 
   useEffect(() => {
+    fetchFamilyMembers();
     fetchRecords();
   }, []);
+
+  useEffect(() => {
+    fetchRecords();
+  }, [selectedFamilyMemberId]);
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -77,7 +119,7 @@ export default function HealthRecords() {
 
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("memberName", "Self");
+      formData.append("family_member_id", selectedFamilyMemberId || "");
 
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze-report`,
@@ -143,6 +185,28 @@ export default function HealthRecords() {
           </Button>
         </div>
       </div>
+
+      {/* Family Member Selector */}
+      <Card className="card-elevated border-border">
+        <CardContent className="pt-6">
+          <div className="space-y-2">
+            <Label htmlFor="family-member-select">Show records for:</Label>
+            <select
+              id="family-member-select"
+              value={selectedFamilyMemberId}
+              onChange={(e) => setSelectedFamilyMemberId(e.target.value)}
+              className="w-full border border-input rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">Self</option>
+              {familyMembers.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </CardContent>
+      </Card>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">

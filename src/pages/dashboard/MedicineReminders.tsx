@@ -57,20 +57,24 @@ export default function MedicineReminders() {
         .select("id, name, phone_number")
         .eq("user_id", user.id);
 
-      if (!memberData || memberData.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      const memberIds = memberData.map(m => m.id);
+      // Get all reminders for this user (both self and family members)
       const { data: reminders } = await supabase
         .from("medicine_reminders")
         .select("*")
-        .in("family_member_id", memberIds)
+        .eq("user_id", user.id)
         .eq("active", true);
 
       const enriched = (reminders || []).map(r => {
-        const member = memberData.find(m => m.id === r.family_member_id);
+        if (!r.family_member_id) {
+          // Self reminder
+          return {
+            ...r,
+            member_name: "Self",
+            phone_number: ""
+          };
+        }
+        // Family member reminder
+        const member = memberData?.find(m => m.id === r.family_member_id);
         return {
           ...r,
           member_name: member?.name || "Unknown",
@@ -87,20 +91,24 @@ export default function MedicineReminders() {
   };
 
   const handleAdd = async () => {
-    if (!form.medicine_name || !form.family_member_id) {
-      toast.error("Please fill medicine name and select family member");
+    if (!form.medicine_name) {
+      toast.error("Please fill medicine name");
       return;
     }
     setSaving(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const timesArray = form.times.split(",").map(t => t.trim()).filter(Boolean);
       const { error } = await supabase
         .from("medicine_reminders")
         .insert({
+          user_id: user.id,
           medicine_name: form.medicine_name,
           dosage: form.dosage,
           times: timesArray,
-          family_member_id: form.family_member_id,
+          family_member_id: form.family_member_id || null,
           active: true
         });
       if (error) throw error;
@@ -148,7 +156,7 @@ export default function MedicineReminders() {
                   value={form.family_member_id}
                   onChange={(e) => setForm({ ...form, family_member_id: e.target.value })}
                 >
-                  <option value="">Select member</option>
+                  <option value="">Self</option>
                   {members.map(m => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}

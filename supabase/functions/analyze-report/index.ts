@@ -1,161 +1,183 @@
+// supabase/functions/analyze-report/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
-};
+type GeminiPart = { text: string };
+type GeminiContent = { role: string; parts: GeminiPart[] };
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  try {
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
-    }
-
-    // Get auth token
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
-
-    // Verify user
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Invalid token" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const memberName = formData.get("memberName") as string || "Self";
-
-    if (!file) {
-      return new Response(JSON.stringify({ error: "No file uploaded" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Convert file to base64
-    const arrayBuffer = await file.arrayBuffer();
-    const base64Data = btoa(
-      new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
-    );
-
-    const mimeType = file.type || "image/jpeg";
-
-    // Call Gemini Vision API
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  inline_data: {
-                    mime_type: mimeType,
-                    data: base64Data,
-                  },
-                },
-                {
-                  text: `You are a medical lab report analyzer for Indian patients. Analyze this health report image/document and return a JSON response with exactly this structure:
-{
-  "report_name": "Name of the test (e.g. Complete Blood Count, Lipid Profile, Thyroid Panel)",
-  "status": "normal" or "warning" or "critical",
-  "summary": "A 2-3 sentence clinical summary in simple English. Mention key findings and recommendations.",
-  "flags": [
-    { "label": "Parameter: Value Unit", "status": "green" or "amber" or "red" }
-  ]
+if (!GEMINI_API_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
+  console.error("Missing required env vars");
 }
 
-Rules:
-- status should be "critical" if any flag is "red", "warning" if any flag is "amber", "normal" if all flags are "green"
-- flag status: "green" = normal range, "amber" = borderline/slightly abnormal, "red" = significantly abnormal
-- Include all key parameters from the report as flags
-- Use standard medical units
-- Return ONLY valid JSON, no markdown or extra text`,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.1,
-            maxOutputTokens: 2048,
-          },
-        }),
-      }
-    );
+async function callGemini(prompt: string): Promise<any> {
+  const contents: GeminiContent[] = [
+    {
+      role: "user",
+      parts: [{ text: prompt }],
+    },
+  ];
 
-    if (!geminiResponse.ok) {
-      const errText = await geminiResponse.text();
-      console.error("Gemini API error:", geminiResponse.status, errText);
-      throw new Error(`Gemini API error: ${geminiResponse.status}`);
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" +
+      GEMINI_API_KEY,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents }),
+    },
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error("Gemini error:", res.status, text);
+    throw new Error("Gemini API error: " + res.status);
+  }
+
+  return res.json();
+}
+
+serve(async (req) => {
+  try {
+    // 1) Auth: get bearer token
+    const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return new Response(
+        JSON.stringify({ error: "Missing or invalid Authorization header" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
     }
 
-    const geminiData = await geminiResponse.json();
-    const rawText = geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    // Parse JSON from response (strip markdown code fences if present)
-    const jsonMatch = rawText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    let analysis;
-    try {
-      analysis = JSON.parse(jsonMatch);
-    } catch {
-      console.error("Failed to parse Gemini response:", rawText);
-      throw new Error("Failed to parse AI analysis. Please try with a clearer image.");
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) {
+      return new Response(
+        JSON.stringify({ error: "Missing bearer token" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
     }
 
-    // Store in database
-    const { data: record, error: insertError } = await supabase
+    // 2) Create anon client with user's JWT for token validation
+    const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    });
+
+    // 3) Validate user token
+    const {
+      data: { user },
+      error: userError,
+    } = await anonClient.auth.getUser();
+
+    if (userError || !user) {
+      console.error("auth.getUser error:", userError);
+      return new Response(
+        JSON.stringify({ error: "Invalid token" }),
+        { status: 401, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const userId = user.id;
+
+    // 4) Create service role client for database and storage operations
+    const serviceRoleClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // 5) Parse form-data
+    const formData = await req.formData();
+    const file = formData.get("file") as File | null;
+    const familyMemberId = (formData.get("family_member_id") as string | null) || null;
+
+    if (!file) {
+      return new Response(
+        JSON.stringify({ error: "Missing file in request" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    // 6) Upload file to Storage bucket
+    const fileExt = file.name.split(".").pop() || "bin";
+    const filePath = `reports/${userId}/${crypto.randomUUID()}.${fileExt}`;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+
+    const { data: uploadData, error: uploadError } = await serviceRoleClient.storage
+      .from("health_records")
+      .upload(filePath, bytes, {
+        contentType: file.type || "application/octet-stream",
+      });
+
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      return new Response(
+        JSON.stringify({ error: "Failed to upload file" }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+    }
+
+    const fileUrl = uploadData?.path ?? filePath;
+
+    // 7) Call Gemini to analyze (simple text prompt — adjust as you like)
+    const geminiPrompt = `You are a medical assistant AI. Read this medical report and provide:
+- A short summary
+- Key findings
+- Any red flags or things to discuss with a doctor.
+
+The report file name is: ${file.name}.
+(You don't see the file content here; assume the app will send extracted text in a future version.)`;
+
+    const geminiRaw = await callGemini(geminiPrompt);
+
+    // Extract some text from the Gemini response
+    const candidates = geminiRaw.candidates?.[0];
+    const summaryText =
+      candidates?.content?.parts?.map((p: any) => p.text).join("\n") ||
+      "No summary generated.";
+
+    // 8) Insert row into health_records
+    const { data: insertData, error: insertError } = await serviceRoleClient
       .from("health_records")
       .insert({
-        user_id: user.id,
-        member_name: memberName,
-        report_name: analysis.report_name || "Health Report",
-        status: analysis.status || "normal",
-        summary: analysis.summary || "Analysis complete.",
-        flags: analysis.flags || [],
+        user_id: userId,
+        family_member_id: familyMemberId,
+        report_name: file.name,
+        report_date: new Date().toISOString(),
+        status: "completed",
+        summary: summaryText,
+        ai_summary: summaryText,
+        flags: [],
         original_filename: file.name,
+        file_url: fileUrl,
+        raw_gemini_response: geminiRaw,
       })
       .select()
       .single();
 
     if (insertError) {
-      console.error("DB insert error:", insertError);
-      throw new Error("Failed to save record");
+      console.error("Insert error:", insertError);
+      return new Response(
+        JSON.stringify({ error: "Failed to save record" }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
     }
 
-    return new Response(JSON.stringify({ success: true, record }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (error) {
-    console.error("analyze-report error:", error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({
+        record: insertData,
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  } catch (err) {
+    console.error("Unexpected error:", err);
+    return new Response(
+      JSON.stringify({ error: "Internal server error" }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
     );
   }
 });
